@@ -3,6 +3,7 @@ import pandas as pd
 import time
 import random
 import altair as alt
+import os
 
 # --- 1. Page Configuration ---
 st.set_page_config(page_title="Greenhouse Gas Lab", layout="wide")
@@ -244,6 +245,15 @@ with col_btn3:
         st.rerun()
 
 st.divider()
+
+# --- Image Upload / Display Section ---
+# Only attempts to display if the file exists, to prevent crashing for users without the file
+image_filename = "image_a015ba.jpg"
+if os.path.exists(image_filename):
+    st.image(image_filename, caption="Lab Setup", use_container_width=True)
+else:
+    # Optional: Display a placeholder or instructions if local file is missing
+    st.info(f"Note: To see the lab setup image, ensure '{image_filename}' is in the same folder as this script.")
 
 # Middle Row: Layout
 col_left, col_right = st.columns([1, 2])
