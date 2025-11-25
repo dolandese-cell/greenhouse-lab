@@ -1,0 +1,101 @@
+import streamlit as st
+import pandas as pd
+import time
+
+# --- Configuration ---
+st.set_page_config(page_title="Greenhouse Gas Lab", layout="centered")
+
+# --- Physics Constants ---
+GAS_PROPERTIES = {
+    "Nitrogen (N2)": {"GWP": 0.0, "Color": "#1f77b4"},      # Blue
+    "Oxygen (O2)":   {"GWP": 0.0, "Color": "#2ca02c"},      # Green
+    "Carbon Dioxide (CO2)": {"GWP": 1.0, "Color": "#ff7f0e"}, # Orange
+    "Methane (CH4)": {"GWP": 25.0, "Color": "#d62728"}      # Red
+}
+
+def calculate_data(gas_name, concentration, light_intensity, duration_mins=15):
+    """Pre-calculates the temperature curve to ensure smooth animation."""
+    dt = 0.1 # Simulation time step (minutes)
+    steps = int(duration_mins / dt)
+    
+    current_temp = 20.0
+    heat_capacity = 50.0
+    gwp = GAS_PROPERTIES[gas_name]["GWP"]
+    
+    # Physics Model
+    greenhouse_trapping = (gwp * concentration) / 2000.0 
+    effective_emissivity = max(0.1, 1.0 - greenhouse_trapping)
+    sigma = 0.1
+
+    data = []
+    
+    for i in range(steps):
+        time_val = i * dt
+        
+        # Energy Balance
+        energy_in = light_intensity * 2.0 
+        temp_k = current_temp + 273.15
+        energy_out = effective_emissivity * sigma * (temp_k ** 4) / 1e6
+        
+        current_temp += (energy_in - energy_out) / heat_capacity * dt
+        
+        data.append({"Time": time_val, "Temperature": current_temp})
+        
+    return pd.DataFrame(data)
+
+# --- App Layout ---
+st.title("🌡️ Greenhouse Gas Simulator")
+
+# Controls
+col1, col2, col3 = st.columns(3)
+with col1:
+    gas = st.selectbox("Select Gas", list(GAS_PROPERTIES.keys()))
+with col2:
+    intensity = st.slider("Light Intensity", 50, 200, 120)
+with col3:
+    conc = st.slider("Concentration (ppm)", 0, 1000, 500)
+
+# Simulation Setup
+df = calculate_data(gas, conc, intensity)
+
+# Layout for Animation
+st.divider()
+col_btn, col_txt = st.columns([1, 4])
+with col_btn:
+    start_btn = st.button("▶️ Play Simulation")
+with col_txt:
+    st.write("*(15 minutes of data will play in 30 seconds)*")
+
+# Placeholders for live updates
+meter_col1, meter_col2 = st.columns(2)
+with meter_col1:
+    time_meter = st.empty()
+with meter_col2:
+    temp_meter = st.empty()
+
+chart_spot = st.empty()
+
+if start_btn:
+    # Animation Loop
+    for i in range(len(df)):
+        row = df.iloc[i]
+        
+        # 1. Update Live Meters
+        time_meter.metric(label="Elapsed Time", value=f"{row['Time']:.1f} min")
+        temp_meter.metric(
+            label="Temperature", 
+            value=f"{row['Temperature']:.1f} °C",
+            delta=f"{row['Temperature'] - 20.0:.1f} °C"
+        )
+        
+        # 2. Update Graph
+        current_data = df.iloc[:i+1]
+        chart_spot.line_chart(
+            current_data.set_index("Time"), 
+            color=GAS_PROPERTIES[gas]["Color"]
+        )
+        
+        # 3. Speed Control (Sleep for ~0.05s to make 150 frames take ~10-30s)
+        time.sleep(0.05) 
+        
+    st.success("Simulation Complete!")
