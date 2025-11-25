@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
 import time
+import random
 
 # --- 1. Page Configuration ---
 st.set_page_config(page_title="Greenhouse Gas Lab", layout="wide")
 
-# --- 2. Styles for Big Meters ---
+# --- 2. Styles for Big Meters & Layout ---
 st.markdown("""
 <style>
     .big-font {
@@ -24,34 +25,44 @@ st.markdown("""
         font-size: 20px;
         color: #555;
     }
+    .particle-box {
+        border: 2px solid #333;
+        border-radius: 5px;
+        background-color: #fff;
+        margin-top: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # --- 3. Physics & State Management ---
 
-# Initialize Session State variables if they don't exist
+# Initialize Session State variables
 if 'is_running' not in st.session_state:
     st.session_state.is_running = False
 if 'current_time' not in st.session_state:
     st.session_state.current_time = 0.0
 if 'current_temp' not in st.session_state:
-    st.session_state.current_temp = 20.0 # Start at Room Temp
+    st.session_state.current_temp = 20.0 
 if 'history_time' not in st.session_state:
     st.session_state.history_time = [0.0]
 if 'history_temp' not in st.session_state:
     st.session_state.history_temp = [20.0]
+if 'selected_gas' not in st.session_state:
+    st.session_state.selected_gas = "Nitrogen (N2)"
 
 # Physics Constants
+# Insulation: 1.0 = No Greenhouse Effect (Heat escapes easily)
+# Higher Insulation = Heat is trapped
 GAS_PROPERTIES = {
-    "Nitrogen (N2)":       {"Insulation": 1.0, "Color": "#1f77b4"}, # Baseline (No extra heat trapping)
-    "Oxygen (O2)":         {"Insulation": 1.0, "Color": "#2ca02c"}, # Baseline
-    "Carbon Dioxide (CO2)": {"Insulation": 1.5, "Color": "#ff7f0e"}, # Traps heat
-    "Methane (CH4)":       {"Insulation": 2.5, "Color": "#d62728"}  # Traps A LOT of heat
+    "Nitrogen (N2)":       {"Insulation": 1.0, "Color": "#1f77b4", "Particles": 30}, 
+    "Oxygen (O2)":         {"Insulation": 1.0, "Color": "#2ca02c", "Particles": 30}, 
+    "Carbon Dioxide (CO2)": {"Insulation": 4.0, "Color": "#ff7f0e", "Particles": 50}, 
+    "Methane (CH4)":       {"Insulation": 8.0, "Color": "#d62728", "Particles": 50}  
 }
 
-AMBIENT_TEMP = 20.0  # Room temperature
+AMBIENT_TEMP = 20.0 
 
-# --- 4. Sidebar Controls ---
+# --- 4. Sidebar Controls & Auto-Reset ---
 st.sidebar.header("🔬 Experiment Controls")
 
 gas_name = st.sidebar.selectbox("Select Gas Type", list(GAS_PROPERTIES.keys()))
@@ -59,21 +70,86 @@ intensity = st.sidebar.slider("Light Intensity (Heating Power)", 1, 10, 5)
 concentration = st.sidebar.slider("Gas Concentration (ppm)", 0, 1000, 500)
 sim_speed = st.sidebar.slider("Simulation Speed", 1, 10, 5, help="Higher number = Faster animation")
 
-# --- 5. Main UI Layout ---
+# Auto-Reset Logic: Check if gas changed
+if gas_name != st.session_state.selected_gas:
+    st.session_state.is_running = False
+    st.session_state.current_time = 0.0
+    st.session_state.current_temp = AMBIENT_TEMP
+    st.session_state.history_time = [0.0]
+    st.session_state.history_temp = [AMBIENT_TEMP]
+    st.session_state.selected_gas = gas_name
+    st.rerun()
+
+# --- 5. Helper Functions (Visuals) ---
+
+def generate_particle_html(temp, color):
+    """Generates an SVG animation of vibrating particles."""
+    # Speed is inversely proportional to temperature (Hotter = Faster vibration duration is lower)
+    # Mapping 20C -> 1.0s, 60C -> 0.1s
+    clamped_temp = max(20, min(100, temp))
+    speed = 1.0 - ((clamped_temp - 20) / 100.0) 
+    speed = max(0.1, speed)
+    
+    particles = []
+    # Create random dots
+    for _ in range(20):
+        cx = random.randint(10, 290)
+        cy = random.randint(10, 140)
+        r = random.randint(3, 6)
+        # Randomize vibration direction slightly
+        dx = random.choice([-5, 5])
+        dy = random.choice([-5, 5])
+        
+        particles.append(f"""
+            <circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}" opacity="0.7">
+                <animateTransform attributeName="transform" type="translate" 
+                values="0,0; {dx},{dy}; 0,0" dur="{speed}s" repeatCount="indefinite" />
+            </circle>
+        """)
+    
+    svg_content = "".join(particles)
+    
+    return f"""
+    <div class="particle-box">
+        <svg width="100%" height="150" viewBox="0 0 300 150" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100%" height="100%" fill="#fafafa"/>
+            {svg_content}
+            <text x="10" y="140" font-family="Arial" font-size="12" fill="#555">Molecular Activity</text>
+        </svg>
+    </div>
+    """
+
+def update_ui(temp, t, history_t, history_T, gas_props):
+    # 1. Update Meters
+    temp_placeholder.markdown(
+        f'<div class="metric-container"><div class="big-font">{temp:.1f} °C</div></div>', 
+        unsafe_allow_html=True
+    )
+    time_placeholder.markdown(
+        f'<div class="metric-container"><div class="big-font">{t:.1f} m</div></div>', 
+        unsafe_allow_html=True
+    )
+    
+    # 2. Update Graph
+    chart_data = pd.DataFrame({"Time": history_t, "Temperature": history_T})
+    chart_placeholder.line_chart(chart_data.set_index("Time"), color=gas_props["Color"])
+    
+    # 3. Update Particle Visual
+    particle_html = generate_particle_html(temp, gas_props["Color"])
+    particle_placeholder.markdown(particle_html, unsafe_allow_html=True)
+
+# --- 6. Main UI Layout ---
 
 st.title("🧪 Interactive Greenhouse Effect Lab")
 
 # Top Row: Buttons
 col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 4])
-
 with col_btn1:
     if st.button("▶️ Play"):
         st.session_state.is_running = True
-
 with col_btn2:
     if st.button("II Pause"):
         st.session_state.is_running = False
-
 with col_btn3:
     if st.button("🔄 Reset"):
         st.session_state.is_running = False
@@ -81,108 +157,70 @@ with col_btn3:
         st.session_state.current_temp = AMBIENT_TEMP
         st.session_state.history_time = [0.0]
         st.session_state.history_temp = [AMBIENT_TEMP]
+        st.rerun()
 
 st.divider()
 
-# Middle Row: Big Meters & Graph
+# Middle Row: Layout
+# Left: Meters & Particles | Right: Graph
 col_left, col_right = st.columns([1, 2])
 
-# Placeholders for live updates
 with col_left:
     st.markdown('<div class="label-font">Current Temperature</div>', unsafe_allow_html=True)
     temp_placeholder = st.empty()
     
-    st.write("") # Spacer
-    
+    st.write("") 
     st.markdown('<div class="label-font">Elapsed Time (min)</div>', unsafe_allow_html=True)
     time_placeholder = st.empty()
+    
+    st.write("")
+    st.markdown('<div class="label-font">Particle View</div>', unsafe_allow_html=True)
+    particle_placeholder = st.empty()
 
 with col_right:
     chart_placeholder = st.empty()
 
-# --- 6. Helper Function to Draw UI ---
-def update_ui(temp, t, history_t, history_T, gas_color):
-    # Update Big Temperature Meter
-    temp_placeholder.markdown(
-        f'<div class="metric-container"><div class="big-font">{temp:.1f} °C</div></div>', 
-        unsafe_allow_html=True
-    )
-    
-    # Update Time Meter
-    time_placeholder.markdown(
-        f'<div class="metric-container"><div class="big-font">{t:.1f} m</div></div>', 
-        unsafe_allow_html=True
-    )
-    
-    # Update Graph
-    chart_data = pd.DataFrame({"Time": history_t, "Temperature": history_T})
-    
-    # We use Altair or standard Streamlit line chart
-    # Setting a fixed Y-axis (15 to 60) so students see the rise clearly
-    # Note: Streamlit line_chart auto-scales, so we construct a slight workaround 
-    # or just let it auto-scale. For Simplicity, we rely on auto-scale but add a 'Limit' line?
-    # No, let's keep it simple.
-    chart_placeholder.line_chart(
-        chart_data.set_index("Time"), 
-        color=gas_color
-    )
-
 # --- 7. The Simulation Loop ---
 
-# Calculate Physics Parameters based on Sliders
-# Logic: Heat In - Heat Out = Change in Temp
-# Heat In = Intensity
-# Heat Out = (CurrentTemp - Ambient) * CoolingFactor
-# Greenhouse gases DECREASE the CoolingFactor (trap heat)
-
-base_cooling = 0.5 # How fast a normal bottle cools
-# Insulation multiplier: 1.0 = Normal, 2.0 = Harder to cool
+# Physics Logic Setup
+base_cooling = 1.5 # Increased cooling so N2/O2 don't heat up much
 insulation_factor = 1.0 
 
 props = GAS_PROPERTIES[gas_name]
 if props["Insulation"] > 1.0:
     # Use concentration to scale the insulation
-    # 0 ppm = 1.0 (no effect), 1000 ppm = Max effect defined in dictionary
     added_insulation = (props["Insulation"] - 1.0) * (concentration / 1000.0)
     insulation_factor = 1.0 + added_insulation
 
-# Effective cooling rate (Lower = Hotter bottle)
 cooling_rate = base_cooling / insulation_factor
 
-# Render initial static state
+# Render initial state
 update_ui(
     st.session_state.current_temp, 
     st.session_state.current_time, 
     st.session_state.history_time, 
     st.session_state.history_temp,
-    props["Color"]
+    props
 )
 
-# If "Play" is active, run the loop
 if st.session_state.is_running:
-    
-    # Loop Logic
-    while st.session_state.is_running and st.session_state.current_time < 20.0: # Stop at 20 mins
+    while st.session_state.is_running and st.session_state.current_time < 20.0:
         
         # 1. Physics Step
-        dt = 0.1 # Simulation time step
-        
-        # Newton's Law of Heating/Cooling
-        # Energy In (Lamp)
-        heat_gain = intensity * 2.0 
-        
-        # Energy Out (Loss to room)
+        dt = 0.1 
+        heat_gain = intensity * 1.5 # Adjusted heat gain
         temp_diff = st.session_state.current_temp - AMBIENT_TEMP
         heat_loss = temp_diff * cooling_rate
         
-        # Net Change
         net_change = (heat_gain - heat_loss) * dt
         
-        # Update State
         st.session_state.current_temp += net_change
         st.session_state.current_time += dt
         
-        # Append to History
+        # Ensure we don't drop below ambient
+        if st.session_state.current_temp < AMBIENT_TEMP:
+             st.session_state.current_temp = AMBIENT_TEMP
+        
         st.session_state.history_time.append(st.session_state.current_time)
         st.session_state.history_temp.append(st.session_state.current_temp)
         
@@ -192,21 +230,12 @@ if st.session_state.is_running:
             st.session_state.current_time, 
             st.session_state.history_time, 
             st.session_state.history_temp,
-            props["Color"]
+            props
         )
         
         # 3. Speed Control
-        # Sleep time decreases as speed slider increases
-        sleep_time = 0.5 / sim_speed 
-        time.sleep(sleep_time)
+        time.sleep(0.5 / sim_speed)
         
-        # Check if we should stop (Streamlit re-runs script on interaction, 
-        # but inside a loop we must rely on the loop finishing or external interrupt. 
-        # A true 'Pause' button press during the loop triggers a script re-run, 
-        # which will reset 'is_running' variable logic if we aren't careful, 
-        # but since we set is_running via button earlier, the rerun stops the loop.)
-        
-    # If time is up
     if st.session_state.current_time >= 20.0:
         st.session_state.is_running = False
         st.success("Simulation Complete!")
