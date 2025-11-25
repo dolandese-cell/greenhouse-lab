@@ -96,30 +96,30 @@ def generate_particle_html(temp, color):
         cx = random.randint(10, 290)
         cy = random.randint(10, 140)
         r = random.randint(3, 6)
-        # Randomize vibration direction slightly
         dx = random.choice([-5, 5])
         dy = random.choice([-5, 5])
         
-        particles.append(f"""
-            <circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}" opacity="0.7">
-                <animateTransform attributeName="transform" type="translate" 
-                values="0,0; {dx},{dy}; 0,0" dur="{speed}s" repeatCount="indefinite" />
-            </circle>
-        """)
+        # We construct the string without indentation to avoid Markdown code-block parsing issues
+        particle = (
+            f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}" opacity="0.7">'
+            f'<animateTransform attributeName="transform" type="translate" '
+            f'values="0,0; {dx},{dy}; 0,0" dur="{speed}s" repeatCount="indefinite" />'
+            f'</circle>'
+        )
+        particles.append(particle)
     
     svg_content = "".join(particles)
     
-    # IMPORTANT: The string below must NOT be indented, otherwise Streamlit/Markdown
-    # treats it as a code block instead of rendering the HTML.
-    return f"""
-<div class="particle-box">
-    <svg width="100%" height="150" viewBox="0 0 300 150" xmlns="http://www.w3.org/2000/svg">
-        <rect width="100%" height="100%" fill="#fafafa"/>
-        {svg_content}
-        <text x="10" y="140" font-family="Arial" font-size="12" fill="#555">Molecular Activity</text>
-    </svg>
-</div>
-"""
+    # Return a clean, flattened HTML string
+    return (
+        f'<div class="particle-box">'
+        f'<svg width="100%" height="150" viewBox="0 0 300 150" xmlns="http://www.w3.org/2000/svg">'
+        f'<rect width="100%" height="100%" fill="#fafafa"/>'
+        f'{svg_content}'
+        f'<text x="10" y="140" font-family="Arial" font-size="12" fill="#555">Molecular Activity</text>'
+        f'</svg>'
+        f'</div>'
+    )
 
 def update_ui(temp, t, history_t, history_T, gas_props):
     # 1. Update Meters
