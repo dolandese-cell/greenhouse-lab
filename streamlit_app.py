@@ -52,6 +52,10 @@ if 'history_temp' not in st.session_state:
 if 'selected_gas' not in st.session_state:
     st.session_state.selected_gas = "Nitrogen (N2)"
 
+# Run Variance: A random factor generated for each run to make data unique
+if 'run_variance' not in st.session_state:
+    st.session_state.run_variance = random.uniform(0.95, 1.05)
+
 # Storage for saved runs (comparison lines)
 if 'saved_runs' not in st.session_state:
     st.session_state.saved_runs = {}
@@ -71,12 +75,18 @@ if 'particle_data' not in st.session_state:
     st.session_state.particle_data = particles
 
 # Physics Constants
+# Insulation: 1.0 = No Greenhouse Effect
+# We differentiate N2 and O2 slightly here
 GAS_PROPERTIES = {
     "Nitrogen (N2)":       {"Insulation": 1.0, "Color": "#1f77b4"}, 
-    "Oxygen (O2)":         {"Insulation": 1.0, "Color": "#2ca02c"}, 
+    "Oxygen (O2)":         {"Insulation": 1.02, "Color": "#2ca02c"}, # Slightly different from N2
     "Carbon Dioxide (CO2)": {"Insulation": 4.0, "Color": "#ff7f0e"}, 
     "Methane (CH4)":       {"Insulation": 8.0, "Color": "#d62728"}  
 }
+
+# Thermal Mass (Heat Capacity)
+# Higher value = Slower temperature rise (more natural curve)
+THERMAL_MASS = 8.0 
 
 AMBIENT_TEMP = 20.0 
 
@@ -96,7 +106,7 @@ if st.sidebar.button("🗑️ Clear Graph History"):
 # Auto-Reset Logic: Check if gas changed
 if gas_name != st.session_state.selected_gas:
     # 1. Save the OLD run before switching, if it has data
-    if len(st.session_state.history_time) > 10: # Only save if they actually ran it for a bit
+    if len(st.session_state.history_time) > 10: 
         prev_gas = st.session_state.selected_gas
         st.session_state.saved_runs[prev_gas] = {
             "Time": st.session_state.history_time,
@@ -111,6 +121,9 @@ if gas_name != st.session_state.selected_gas:
     st.session_state.history_time = [0.0]
     st.session_state.history_temp = [AMBIENT_TEMP]
     st.session_state.selected_gas = gas_name
+    
+    # 3. Generate NEW random variance for this run (makes it unique)
+    st.session_state.run_variance = random.uniform(0.95, 1.05)
     
     # Regenerate particles
     st.session_state.particle_data = [] 
@@ -134,7 +147,6 @@ def generate_particle_html(temp, color):
     
     particle_svgs = []
     for p in st.session_state.particle_data:
-        # Unpack variables for cleaner f-string
         cx, cy, r = p['cx'], p['cy'], p['r']
         dx, dy, delay = p['dx'], p['dy'], p['delay']
         
@@ -163,22 +175,18 @@ def plot_comparison_chart(history_t, history_T, current_gas_name, current_color)
     """
     Builds a multi-line chart using Altair to show Current + Saved runs.
     """
-    # 1. Prepare Current Data
     df_current = pd.DataFrame({
         "Time": history_t,
         "Temperature": history_T,
         "Gas": current_gas_name
     })
     
-    # 2. Prepare Saved Data
     all_dfs = [df_current]
     
-    # Define color scale domain and range
     domain = [current_gas_name]
     range_colors = [current_color]
     
     for saved_gas_name, data in st.session_state.saved_runs.items():
-        # Don't plot the saved version of the current gas (avoid duplicates)
         if saved_gas_name != current_gas_name:
             df_saved = pd.DataFrame({
                 "Time": data["Time"],
@@ -189,10 +197,8 @@ def plot_comparison_chart(history_t, history_T, current_gas_name, current_color)
             domain.append(saved_gas_name)
             range_colors.append(data["Color"])
             
-    # Combine all data
     final_df = pd.concat(all_dfs)
     
-    # 3. Create Altair Chart
     chart = alt.Chart(final_df).mark_line(strokeWidth=3).encode(
         x=alt.X('Time', title='Time (minutes)'),
         y=alt.Y('Temperature', title='Temperature (°C)', scale=alt.Scale(domain=[15, 65])),
@@ -215,7 +221,7 @@ def update_ui(temp, t, history_t, history_T, gas_props, gas_name):
         unsafe_allow_html=True
     )
     
-    # 2. Update Graph (Now using Altair for multi-line support)
+    # 2. Update Graph
     chart = plot_comparison_chart(history_t, history_T, gas_name, gas_props["Color"])
     chart_placeholder.altair_chart(chart, use_container_width=True)
     
@@ -237,11 +243,14 @@ with col_btn2:
         st.session_state.is_running = False
 with col_btn3:
     if st.button("🔄 Reset"):
+        # Reset Logic is slightly duplicated here to ensure buttons work, 
+        # but we also generate new variance here.
         st.session_state.is_running = False
         st.session_state.current_time = 0.0
         st.session_state.current_temp = AMBIENT_TEMP
         st.session_state.history_time = [0.0]
         st.session_state.history_temp = [AMBIENT_TEMP]
+        st.session_state.run_variance = random.uniform(0.95, 1.05)
         st.rerun()
 
 st.divider()
@@ -265,13 +274,11 @@ with col_right:
     chart_placeholder = st.empty()
 
 # --- Image Upload / Display Section ---
-# Only attempts to display if the file exists, to prevent crashing for users without the file
 image_filename = "image_a015ba.jpg"
 if os.path.exists(image_filename):
-    st.write("") # Spacer
+    st.write("") 
     st.image(image_filename, caption="Lab Setup", use_container_width=True)
 else:
-    # Optional: Display a placeholder or instructions if local file is missing
     st.info(f"Note: To see the lab setup image, ensure '{image_filename}' is in the same folder as this script.")
 
 # --- 7. The Simulation Loop ---
@@ -284,6 +291,9 @@ props = GAS_PROPERTIES[gas_name]
 if props["Insulation"] > 1.0:
     added_insulation = (props["Insulation"] - 1.0) * (concentration / 1000.0)
     insulation_factor = 1.0 + added_insulation
+elif gas_name == "Oxygen (O2)":
+    # Special slight tweak for O2 to differ from N2
+    insulation_factor = 1.02
 
 cooling_rate = base_cooling / insulation_factor
 
@@ -300,13 +310,19 @@ update_ui(
 if st.session_state.is_running:
     while st.session_state.is_running and st.session_state.current_time < 20.0:
         
-        # 1. Physics Step
         dt = 0.1 
-        heat_gain = intensity * 1.5 
+        
+        # Physics Step with Smoothing & Random Variance
+        # 1. Apply Random Variance to Heat Gain (simulating lamp fluctuation/sensor noise)
+        heat_gain = (intensity * 1.5) * st.session_state.run_variance
+        
+        # 2. Calculate Heat Loss
         temp_diff = st.session_state.current_temp - AMBIENT_TEMP
         heat_loss = temp_diff * cooling_rate
         
-        net_change = (heat_gain - heat_loss) * dt
+        # 3. Calculate Net Change divided by THERMAL MASS
+        # This slows down the rate of change, creating a curved "ramp up"
+        net_change = ((heat_gain - heat_loss) / THERMAL_MASS) * dt
         
         st.session_state.current_temp += net_change
         st.session_state.current_time += dt
