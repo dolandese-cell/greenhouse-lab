@@ -52,9 +52,13 @@ if 'history_temp' not in st.session_state:
 if 'selected_gas' not in st.session_state:
     st.session_state.selected_gas = "Nitrogen (N2)"
 
-# Run Variance: A random factor generated for each run to make data unique
-if 'run_variance' not in st.session_state:
-    st.session_state.run_variance = random.uniform(0.95, 1.05)
+# Run Variance 1: Lamp Intensity Noise (Simulates light fluctuation)
+if 'lamp_noise' not in st.session_state:
+    st.session_state.lamp_noise = random.uniform(0.95, 1.05)
+
+# Run Variance 2: Insulation Noise (Simulates bottle/sensor variance)
+if 'insulation_noise' not in st.session_state:
+    st.session_state.insulation_noise = random.uniform(0.98, 1.02)
 
 # Storage for saved runs (comparison lines)
 if 'saved_runs' not in st.session_state:
@@ -122,8 +126,9 @@ if gas_name != st.session_state.selected_gas:
     st.session_state.history_temp = [AMBIENT_TEMP]
     st.session_state.selected_gas = gas_name
     
-    # 3. Generate NEW random variance for this run (makes it unique)
-    st.session_state.run_variance = random.uniform(0.95, 1.05)
+    # 3. Generate NEW random variances for this run
+    st.session_state.lamp_noise = random.uniform(0.95, 1.05)
+    st.session_state.insulation_noise = random.uniform(0.98, 1.02)
     
     # Regenerate particles
     st.session_state.particle_data = [] 
@@ -250,7 +255,8 @@ with col_btn3:
         st.session_state.current_temp = AMBIENT_TEMP
         st.session_state.history_time = [0.0]
         st.session_state.history_temp = [AMBIENT_TEMP]
-        st.session_state.run_variance = random.uniform(0.95, 1.05)
+        st.session_state.lamp_noise = random.uniform(0.95, 1.05)
+        st.session_state.insulation_noise = random.uniform(0.98, 1.02)
         st.rerun()
 
 st.divider()
@@ -288,12 +294,22 @@ base_cooling = 1.5
 insulation_factor = 1.0 
 
 props = GAS_PROPERTIES[gas_name]
-if props["Insulation"] > 1.0:
+
+# Insulation Calculation:
+if props["Insulation"] > 2.0: # CO2 (4.0) and Methane (8.0)
+    # Significant Greenhouse Effect responding to concentration
     added_insulation = (props["Insulation"] - 1.0) * (concentration / 1000.0)
     insulation_factor = 1.0 + added_insulation
-elif gas_name == "Oxygen (O2)":
-    # Special slight tweak for O2 to differ from N2
-    insulation_factor = 1.02
+else: 
+    # Nitrogen (1.0) and Oxygen (1.02)
+    # We apply a very TINY concentration factor just so the slider isn't "dead"
+    # This simulates minor density/mass effects but is negligible compared to CO2
+    base = props["Insulation"]
+    added_insulation = 0.05 * (concentration / 1000.0) # Max effect is 0.05 vs CO2's 3.0
+    insulation_factor = base + added_insulation
+
+# Apply Random "Bottle" Noise (simulates sensor/material variance per run)
+insulation_factor *= st.session_state.insulation_noise
 
 cooling_rate = base_cooling / insulation_factor
 
@@ -313,8 +329,8 @@ if st.session_state.is_running:
         dt = 0.1 
         
         # Physics Step with Smoothing & Random Variance
-        # 1. Apply Random Variance to Heat Gain (simulating lamp fluctuation/sensor noise)
-        heat_gain = (intensity * 1.5) * st.session_state.run_variance
+        # 1. Apply Random "Lamp" Noise to Heat Gain
+        heat_gain = (intensity * 1.5) * st.session_state.lamp_noise
         
         # 2. Calculate Heat Loss
         temp_diff = st.session_state.current_temp - AMBIENT_TEMP
