@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 import random
+import altair as alt
 
 # --- 1. Page Configuration ---
 st.set_page_config(page_title="Greenhouse Gas Lab", layout="wide")
@@ -50,9 +51,12 @@ if 'history_temp' not in st.session_state:
 if 'selected_gas' not in st.session_state:
     st.session_state.selected_gas = "Nitrogen (N2)"
 
-# Initialize Particle Data (Fixed positions to prevent jumping)
+# Storage for saved runs (comparison lines)
+if 'saved_runs' not in st.session_state:
+    st.session_state.saved_runs = {}
+
+# Initialize Particle Data (Fixed positions)
 if 'particle_data' not in st.session_state:
-    # Generate random positions ONCE and store them
     particles = []
     for _ in range(30):
         particles.append({
@@ -61,7 +65,7 @@ if 'particle_data' not in st.session_state:
             'r': random.randint(3, 6),
             'dx': random.choice([-5, 5]),
             'dy': random.choice([-5, 5]),
-            'delay': random.uniform(0, 1.0) # Fixed delay for staggered starts
+            'delay': random.uniform(0, 1.0) 
         })
     st.session_state.particle_data = particles
 
@@ -83,15 +87,31 @@ intensity = st.sidebar.slider("Light Intensity (Heating Power)", 1, 10, 5)
 concentration = st.sidebar.slider("Gas Concentration (ppm)", 0, 1000, 500)
 sim_speed = st.sidebar.slider("Simulation Speed", 1, 10, 5, help="Higher number = Faster animation")
 
+# Button to clear comparison history
+if st.sidebar.button("🗑️ Clear Graph History"):
+    st.session_state.saved_runs = {}
+    st.rerun()
+
 # Auto-Reset Logic: Check if gas changed
 if gas_name != st.session_state.selected_gas:
+    # 1. Save the OLD run before switching, if it has data
+    if len(st.session_state.history_time) > 10: # Only save if they actually ran it for a bit
+        prev_gas = st.session_state.selected_gas
+        st.session_state.saved_runs[prev_gas] = {
+            "Time": st.session_state.history_time,
+            "Temp": st.session_state.history_temp,
+            "Color": GAS_PROPERTIES[prev_gas]["Color"]
+        }
+    
+    # 2. Reset Everything for new gas
     st.session_state.is_running = False
     st.session_state.current_time = 0.0
     st.session_state.current_temp = AMBIENT_TEMP
     st.session_state.history_time = [0.0]
     st.session_state.history_temp = [AMBIENT_TEMP]
     st.session_state.selected_gas = gas_name
-    # Regenerate particles on reset so it feels like a new sample
+    
+    # Regenerate particles
     st.session_state.particle_data = [] 
     for _ in range(30):
         st.session_state.particle_data.append({
@@ -107,17 +127,12 @@ if gas_name != st.session_state.selected_gas:
 # --- 5. Helper Functions (Visuals) ---
 
 def generate_particle_html(temp, color):
-    """Generates an SVG animation of vibrating particles using STORED positions."""
-    # Speed calculation
     speed_factor = max(0.0, min(1.0, (temp - 20) / 50.0)) 
     duration = 1.0 - (speed_factor * 0.8) 
     duration = max(0.1, duration) 
     
     particle_svgs = []
-    
-    # Use the stored particle data instead of randomizing every frame
     for p in st.session_state.particle_data:
-        # We update the duration based on temp, but keep positions (cx, cy) constant
         particle = (
             f'<circle cx="{p["cx"]}" cy="{p["cy"]}" r="{p["r"]}" fill="{color}" opacity="0.7">'
             f'<animateTransform attributeName="transform" type="translate" '
@@ -139,7 +154,52 @@ def generate_particle_html(temp, color):
         f'</div>'
     )
 
-def update_ui(temp, t, history_t, history_T, gas_props):
+def plot_comparison_chart(history_t, history_T, current_gas_name, current_color):
+    """
+    Builds a multi-line chart using Altair to show Current + Saved runs.
+    """
+    # 1. Prepare Current Data
+    df_current = pd.DataFrame({
+        "Time": history_t,
+        "Temperature": history_T,
+        "Gas": current_gas_name
+    })
+    
+    # 2. Prepare Saved Data
+    all_dfs = [df_current]
+    
+    # Define color scale domain and range
+    domain = [current_gas_name]
+    range_colors = [current_color]
+    
+    for saved_gas_name, data in st.session_state.saved_runs.items():
+        # Don't plot the saved version of the current gas (avoid duplicates)
+        if saved_gas_name != current_gas_name:
+            df_saved = pd.DataFrame({
+                "Time": data["Time"],
+                "Temperature": data["Temp"],
+                "Gas": saved_gas_name
+            })
+            all_dfs.append(df_saved)
+            domain.append(saved_gas_name)
+            range_colors.append(data["Color"])
+            
+    # Combine all data
+    final_df = pd.concat(all_dfs)
+    
+    # 3. Create Altair Chart
+    chart = alt.Chart(final_df).mark_line(strokeWidth=3).encode(
+        x=alt.X('Time', title='Time (minutes)'),
+        y=alt.Y('Temperature', title='Temperature (°C)', scale=alt.Scale(domain=[15, 65])),
+        color=alt.Color('Gas', scale=alt.Scale(domain=domain, range=range_colors), legend=alt.Legend(title="Gases")),
+        tooltip=['Gas', 'Time', 'Temperature']
+    ).properties(
+        height=350
+    ).interactive()
+    
+    return chart
+
+def update_ui(temp, t, history_t, history_T, gas_props, gas_name):
     # 1. Update Meters
     temp_placeholder.markdown(
         f'<div class="metric-container"><div class="big-font">{temp:.1f} °C</div></div>', 
@@ -150,9 +210,9 @@ def update_ui(temp, t, history_t, history_T, gas_props):
         unsafe_allow_html=True
     )
     
-    # 2. Update Graph
-    chart_data = pd.DataFrame({"Time": history_t, "Temperature": history_T})
-    chart_placeholder.line_chart(chart_data.set_index("Time"), color=gas_props["Color"])
+    # 2. Update Graph (Now using Altair for multi-line support)
+    chart = plot_comparison_chart(history_t, history_T, gas_name, gas_props["Color"])
+    chart_placeholder.altair_chart(chart, use_container_width=True)
     
     # 3. Update Particle Visual
     particle_html = generate_particle_html(temp, gas_props["Color"])
@@ -182,7 +242,6 @@ with col_btn3:
 st.divider()
 
 # Middle Row: Layout
-# Left: Meters & Particles | Right: Graph
 col_left, col_right = st.columns([1, 2])
 
 with col_left:
@@ -203,12 +262,11 @@ with col_right:
 # --- 7. The Simulation Loop ---
 
 # Physics Logic Setup
-base_cooling = 1.5 # Increased cooling so N2/O2 don't heat up much
+base_cooling = 1.5 
 insulation_factor = 1.0 
 
 props = GAS_PROPERTIES[gas_name]
 if props["Insulation"] > 1.0:
-    # Use concentration to scale the insulation
     added_insulation = (props["Insulation"] - 1.0) * (concentration / 1000.0)
     insulation_factor = 1.0 + added_insulation
 
@@ -220,7 +278,8 @@ update_ui(
     st.session_state.current_time, 
     st.session_state.history_time, 
     st.session_state.history_temp,
-    props
+    props,
+    gas_name
 )
 
 if st.session_state.is_running:
@@ -228,7 +287,7 @@ if st.session_state.is_running:
         
         # 1. Physics Step
         dt = 0.1 
-        heat_gain = intensity * 1.5 # Adjusted heat gain
+        heat_gain = intensity * 1.5 
         temp_diff = st.session_state.current_temp - AMBIENT_TEMP
         heat_loss = temp_diff * cooling_rate
         
@@ -237,7 +296,6 @@ if st.session_state.is_running:
         st.session_state.current_temp += net_change
         st.session_state.current_time += dt
         
-        # Ensure we don't drop below ambient
         if st.session_state.current_temp < AMBIENT_TEMP:
              st.session_state.current_temp = AMBIENT_TEMP
         
@@ -250,12 +308,5 @@ if st.session_state.is_running:
             st.session_state.current_time, 
             st.session_state.history_time, 
             st.session_state.history_temp,
-            props
-        )
-        
-        # 3. Speed Control
-        time.sleep(0.5 / sim_speed)
-        
-    if st.session_state.current_time >= 20.0:
-        st.session_state.is_running = False
-        st.success("Simulation Complete!")
+            props,
+            gas_name
