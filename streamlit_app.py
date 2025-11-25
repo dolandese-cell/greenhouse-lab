@@ -133,11 +133,15 @@ def generate_particle_html(temp, color):
     
     particle_svgs = []
     for p in st.session_state.particle_data:
+        # Unpack variables for cleaner f-string
+        cx, cy, r = p['cx'], p['cy'], p['r']
+        dx, dy, delay = p['dx'], p['dy'], p['delay']
+        
         particle = (
-            f'<circle cx="{p["cx"]}" cy="{p["cy"]}" r="{p["r"]}" fill="{color}" opacity="0.7">'
+            f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}" opacity="0.7">'
             f'<animateTransform attributeName="transform" type="translate" '
-            f'values="0,0; {p["dx"]},{p["dy"]}; 0,0" dur="{duration:.2f}s" '
-            f'begin="-{p["delay"]:.2f}s" repeatCount="indefinite" />'
+            f'values="0,0; {dx},{dy}; 0,0" dur="{duration:.2f}s" '
+            f'begin="-{delay:.2f}s" repeatCount="indefinite" />'
             f'</circle>'
         )
         particle_svgs.append(particle)
@@ -310,3 +314,11 @@ if st.session_state.is_running:
             st.session_state.history_temp,
             props,
             gas_name
+        )
+        
+        # 3. Speed Control
+        time.sleep(0.5 / sim_speed)
+        
+    if st.session_state.current_time >= 20.0:
+        st.session_state.is_running = False
+        st.success("Simulation Complete!")
