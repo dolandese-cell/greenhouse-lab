@@ -84,26 +84,32 @@ if gas_name != st.session_state.selected_gas:
 
 def generate_particle_html(temp, color):
     """Generates an SVG animation of vibrating particles."""
-    # Speed is inversely proportional to temperature (Hotter = Faster vibration duration is lower)
-    # Mapping 20C -> 1.0s, 60C -> 0.1s
-    clamped_temp = max(20, min(100, temp))
-    speed = 1.0 - ((clamped_temp - 20) / 100.0) 
-    speed = max(0.1, speed)
+    # Speed calculation: 
+    # Temp 20C -> Duration ~1.0s (Slow)
+    # Temp 60C -> Duration ~0.2s (Fast)
+    # We use a tighter scaling factor to make speed changes more obvious
+    speed_factor = max(0.0, min(1.0, (temp - 20) / 50.0)) # 0 to 1 scale
+    duration = 1.0 - (speed_factor * 0.8) # Results in 1.0s to 0.2s
+    duration = max(0.1, duration) # Safety floor
     
     particles = []
     # Create random dots
-    for _ in range(20):
+    for _ in range(25):
         cx = random.randint(10, 290)
         cy = random.randint(10, 140)
         r = random.randint(3, 6)
         dx = random.choice([-5, 5])
         dy = random.choice([-5, 5])
         
-        # We construct the string without indentation to avoid Markdown code-block parsing issues
+        # KEY FIX: Random 'begin' time offset.
+        # This prevents the animation from snapping to the start every time the UI updates.
+        # It creates a seamless "noise" effect even when re-rendering rapidly.
+        rand_delay = random.uniform(0, duration)
+        
         particle = (
             f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}" opacity="0.7">'
             f'<animateTransform attributeName="transform" type="translate" '
-            f'values="0,0; {dx},{dy}; 0,0" dur="{speed}s" repeatCount="indefinite" />'
+            f'values="0,0; {dx},{dy}; 0,0" dur="{duration:.2f}s" begin="-{rand_delay:.2f}s" repeatCount="indefinite" />'
             f'</circle>'
         )
         particles.append(particle)
