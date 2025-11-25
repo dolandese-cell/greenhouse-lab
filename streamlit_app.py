@@ -109,15 +109,17 @@ def generate_particle_html(temp, color):
     
     svg_content = "".join(particles)
     
+    # IMPORTANT: The string below must NOT be indented, otherwise Streamlit/Markdown
+    # treats it as a code block instead of rendering the HTML.
     return f"""
-    <div class="particle-box">
-        <svg width="100%" height="150" viewBox="0 0 300 150" xmlns="http://www.w3.org/2000/svg">
-            <rect width="100%" height="100%" fill="#fafafa"/>
-            {svg_content}
-            <text x="10" y="140" font-family="Arial" font-size="12" fill="#555">Molecular Activity</text>
-        </svg>
-    </div>
-    """
+<div class="particle-box">
+    <svg width="100%" height="150" viewBox="0 0 300 150" xmlns="http://www.w3.org/2000/svg">
+        <rect width="100%" height="100%" fill="#fafafa"/>
+        {svg_content}
+        <text x="10" y="140" font-family="Arial" font-size="12" fill="#555">Molecular Activity</text>
+    </svg>
+</div>
+"""
 
 def update_ui(temp, t, history_t, history_T, gas_props):
     # 1. Update Meters
