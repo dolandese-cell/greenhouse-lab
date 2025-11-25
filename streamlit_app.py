@@ -50,14 +50,27 @@ if 'history_temp' not in st.session_state:
 if 'selected_gas' not in st.session_state:
     st.session_state.selected_gas = "Nitrogen (N2)"
 
+# Initialize Particle Data (Fixed positions to prevent jumping)
+if 'particle_data' not in st.session_state:
+    # Generate random positions ONCE and store them
+    particles = []
+    for _ in range(30):
+        particles.append({
+            'cx': random.randint(10, 290),
+            'cy': random.randint(10, 140),
+            'r': random.randint(3, 6),
+            'dx': random.choice([-5, 5]),
+            'dy': random.choice([-5, 5]),
+            'delay': random.uniform(0, 1.0) # Fixed delay for staggered starts
+        })
+    st.session_state.particle_data = particles
+
 # Physics Constants
-# Insulation: 1.0 = No Greenhouse Effect (Heat escapes easily)
-# Higher Insulation = Heat is trapped
 GAS_PROPERTIES = {
-    "Nitrogen (N2)":       {"Insulation": 1.0, "Color": "#1f77b4", "Particles": 30}, 
-    "Oxygen (O2)":         {"Insulation": 1.0, "Color": "#2ca02c", "Particles": 30}, 
-    "Carbon Dioxide (CO2)": {"Insulation": 4.0, "Color": "#ff7f0e", "Particles": 50}, 
-    "Methane (CH4)":       {"Insulation": 8.0, "Color": "#d62728", "Particles": 50}  
+    "Nitrogen (N2)":       {"Insulation": 1.0, "Color": "#1f77b4"}, 
+    "Oxygen (O2)":         {"Insulation": 1.0, "Color": "#2ca02c"}, 
+    "Carbon Dioxide (CO2)": {"Insulation": 4.0, "Color": "#ff7f0e"}, 
+    "Methane (CH4)":       {"Insulation": 8.0, "Color": "#d62728"}  
 }
 
 AMBIENT_TEMP = 20.0 
@@ -78,45 +91,44 @@ if gas_name != st.session_state.selected_gas:
     st.session_state.history_time = [0.0]
     st.session_state.history_temp = [AMBIENT_TEMP]
     st.session_state.selected_gas = gas_name
+    # Regenerate particles on reset so it feels like a new sample
+    st.session_state.particle_data = [] 
+    for _ in range(30):
+        st.session_state.particle_data.append({
+            'cx': random.randint(10, 290),
+            'cy': random.randint(10, 140),
+            'r': random.randint(3, 6),
+            'dx': random.choice([-5, 5]),
+            'dy': random.choice([-5, 5]),
+            'delay': random.uniform(0, 1.0)
+        })
     st.rerun()
 
 # --- 5. Helper Functions (Visuals) ---
 
 def generate_particle_html(temp, color):
-    """Generates an SVG animation of vibrating particles."""
-    # Speed calculation: 
-    # Temp 20C -> Duration ~1.0s (Slow)
-    # Temp 60C -> Duration ~0.2s (Fast)
-    # We use a tighter scaling factor to make speed changes more obvious
-    speed_factor = max(0.0, min(1.0, (temp - 20) / 50.0)) # 0 to 1 scale
-    duration = 1.0 - (speed_factor * 0.8) # Results in 1.0s to 0.2s
-    duration = max(0.1, duration) # Safety floor
+    """Generates an SVG animation of vibrating particles using STORED positions."""
+    # Speed calculation
+    speed_factor = max(0.0, min(1.0, (temp - 20) / 50.0)) 
+    duration = 1.0 - (speed_factor * 0.8) 
+    duration = max(0.1, duration) 
     
-    particles = []
-    # Create random dots
-    for _ in range(25):
-        cx = random.randint(10, 290)
-        cy = random.randint(10, 140)
-        r = random.randint(3, 6)
-        dx = random.choice([-5, 5])
-        dy = random.choice([-5, 5])
-        
-        # KEY FIX: Random 'begin' time offset.
-        # This prevents the animation from snapping to the start every time the UI updates.
-        # It creates a seamless "noise" effect even when re-rendering rapidly.
-        rand_delay = random.uniform(0, duration)
-        
+    particle_svgs = []
+    
+    # Use the stored particle data instead of randomizing every frame
+    for p in st.session_state.particle_data:
+        # We update the duration based on temp, but keep positions (cx, cy) constant
         particle = (
-            f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}" opacity="0.7">'
+            f'<circle cx="{p["cx"]}" cy="{p["cy"]}" r="{p["r"]}" fill="{color}" opacity="0.7">'
             f'<animateTransform attributeName="transform" type="translate" '
-            f'values="0,0; {dx},{dy}; 0,0" dur="{duration:.2f}s" begin="-{rand_delay:.2f}s" repeatCount="indefinite" />'
+            f'values="0,0; {p["dx"]},{p["dy"]}; 0,0" dur="{duration:.2f}s" '
+            f'begin="-{p["delay"]:.2f}s" repeatCount="indefinite" />'
             f'</circle>'
         )
-        particles.append(particle)
+        particle_svgs.append(particle)
     
-    svg_content = "".join(particles)
+    svg_content = "".join(particle_svgs)
     
-    # Return a clean, flattened HTML string
     return (
         f'<div class="particle-box">'
         f'<svg width="100%" height="150" viewBox="0 0 300 150" xmlns="http://www.w3.org/2000/svg">'
